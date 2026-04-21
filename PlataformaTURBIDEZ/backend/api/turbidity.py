@@ -86,7 +86,7 @@ async def get_heatmap_data(
         raise HTTPException(status_code=500, detail=str(e))
 
 # --- Performance-optimized heatmap endpoint ---
-from fastapi.responses import ORJSONResponse
+from fastapi.responses import JSONResponse
 import time
 
 # In-memory cache for heatmap data (satellite data is immutable)
@@ -112,7 +112,7 @@ async def get_heatmap_data_fast(
     if cache_key in _heatmap_cache:
         cached = _heatmap_cache[cache_key]
         if time.time() - cached["ts"] < _CACHE_TTL:
-            return ORJSONResponse(content=cached["data"])
+            return JSONResponse(content=cached["data"])
     
     try:
         start_dt = pd.to_datetime(start_date)
@@ -153,7 +153,7 @@ async def get_heatmap_data_fast(
         # Cache the result
         _heatmap_cache[cache_key] = {"data": response_data, "ts": time.time()}
         
-        return ORJSONResponse(content=response_data)
+        return JSONResponse(content=response_data)
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

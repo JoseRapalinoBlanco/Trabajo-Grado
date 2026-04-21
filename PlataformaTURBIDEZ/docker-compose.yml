@@ -1,18 +1,4 @@
 services:
-  reverse-proxy:
-    image: traefik:v2.10
-    container_name: traefik
-    command:
-      - "--api.insecure=true"
-      - "--providers.docker=true"
-      - "--providers.docker.exposedbydefault=false"
-      - "--entrypoints.web.address=:80"
-    ports:
-      - "80:80"
-      - "8080:8080"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-
   db:
     image: timescale/timescaledb-ha:pg15-latest
     container_name: visioagua_db
@@ -25,36 +11,29 @@ services:
     volumes:
       - pgdata:/home/postgres/pgdata/data
       - ./db/init:/docker-entrypoint-initdb.d
-    labels:
-      - "traefik.enable=false"
 
   backend:
     build: ./backend
     container_name: visioagua_backend
     environment:
       - DATABASE_URL=postgresql+asyncpg://admin:adminpassword@db:5432/visioagua
+    ports:
+      - "8000:8000"
     volumes:
       - ./backend:/app
     depends_on:
       - db
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.backend.rule=PathPrefix(`/api`)"
-      - "traefik.http.services.backend.loadbalancer.server.port=8000"
 
   frontend:
     build: ./frontend
     container_name: visioagua_frontend
+    ports:
+      - "5173:5173"
     volumes:
       - ./frontend:/app
       - /app/node_modules
     environment:
       - NODE_ENV=development
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.frontend.rule=PathPrefix(`/`)"
-      - "traefik.http.routers.frontend.priority=1"
-      - "traefik.http.services.frontend.loadbalancer.server.port=5173"
 
 volumes:
   pgdata:

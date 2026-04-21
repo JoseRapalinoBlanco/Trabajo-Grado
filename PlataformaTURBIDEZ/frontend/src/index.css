@@ -1,0 +1,39 @@
+@import "tailwindcss";
+
+body {
+  @apply m-0 p-0 overflow-hidden font-sans text-slate-200 bg-slate-950;
+}
+
+#root {
+  @apply w-full h-[100dvh] flex flex-[1_1_100%];
+}
+
+/* Custom Scientific OpenLayers Zoom Controls */
+.ol-zoom {
+  top: 1.5rem !important;
+  right: 1.5rem !important;
+  left: auto !important;
+}
+
+.ol-zoom button {
+  background-color: rgba(15, 23, 42, 0.8) !important; /* slate-900 */
+  color: #cbd5e1 !important; /* slate-300 */
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-radius: 8px !important;
+  width: 2.2rem !important;
+  height: 2.2rem !important;
+  transition: all 0.2s ease !important;
+  margin-bottom: 0.5rem !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  font-size: 1.2rem !important;
+  cursor: pointer !important;
+  backdrop-filter: blur(4px) !important;
+}
+
+.ol-zoom button:hover {
+  background-color: rgba(30, 41, 59, 1) !important; /* slate-800 */
+  color: #ffffff !important;
+  border-color: rgba(255, 255, 255, 0.3) !important;
+}

@@ -36,6 +36,10 @@ function App() {
   const [sliderValue, setSliderValue] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [availableDates, setAvailableDates] = useState<string[]>([]);
+
+  // --- Satellite & Algorithm State ---
+  const [satellite, setSatellite] = useState<'S2' | 'S3'>('S3');
+  const [algorithm, setAlgorithm] = useState('SVR');
   
   // --- Offscreen Recording State ---
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -56,11 +60,11 @@ function App() {
   const [pngIndex, setPngIndex] = useState(0);
   const pngZipRef = useRef<JSZip | null>(null);
 
-  // Fetch Available Dates on Mount
+  // Fetch Available Dates (re-fetch when satellite or algorithm changes)
   useEffect(() => {
     const fetchAvailableDates = async () => {
       try {
-        const res = await fetch('/api/v1/turbidity/available-dates');
+        const res = await fetch(`/api/v1/turbidity/available-dates?satellite=${satellite}&algorithm=${algorithm}`);
         if (res.ok) {
           const data = await res.json();
           setAvailableDates(data.dates);
@@ -70,7 +74,12 @@ function App() {
       }
     };
     fetchAvailableDates();
-  }, []);
+    // Reset timeline state when satellite/algorithm changes
+    setCurrentDate('');
+    setShowTimeline(false);
+    setIsPlaying(false);
+    setSliderValue(0);
+  }, [satellite, algorithm]);
 
   // Sidebar persistence Logic (Open automatically on desktop resize)
   useEffect(() => {
@@ -374,10 +383,18 @@ function App() {
         t={t}
         lang={lang}
         isOpen={sidebarOpen}
+        selectedSatellite={satellite}
+        selectedAlgorithm={algorithm}
         onClose={() => setSidebarOpen(false)}
         onToggleLang={() => setLang(lang === 'es' ? 'en' : 'es')}
         onLoginClick={handleLoginClick}
         onOpenReports={() => setShowReportsModal(true)}
+        onSatelliteChange={(sat) => {
+          setSatellite(sat);
+          // Auto-switch to default algorithm for the new satellite
+          setAlgorithm(sat === 'S2' ? 'Nechad2009' : 'SVR');
+        }}
+        onAlgorithmChange={setAlgorithm}
       />
 
       {/* Main Map Content */}
@@ -389,6 +406,8 @@ function App() {
           endDate={currentDate}
           globalStartDate={startDate}
           globalEndDate={endDate}
+          satellite={satellite}
+          algorithm={algorithm}
           onRenderComplete={() => setIsRendering(false)}
           onMapInteraction={() => setIsPlaying(false)}
           onExpandRange={handleExpandRange}
@@ -500,6 +519,8 @@ function App() {
           t={t}
           currentDate={currentDate}
           availableDates={availableDates}
+          satellite={satellite}
+          algorithm={algorithm}
           onClose={() => setShowReportsModal(false)}
           onApplyDates={(mode: 'single' | 'range', start: string, end: string) => {
             setDateMode(mode);

@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import logging
 from database import engine, Base, AsyncSessionLocal
 from api import api_router
-from models import AdminUser
+from models import AdminUser, TurbidityData, TurbidityDataS2
 from security import get_password_hash
 from sqlalchemy.future import select
 

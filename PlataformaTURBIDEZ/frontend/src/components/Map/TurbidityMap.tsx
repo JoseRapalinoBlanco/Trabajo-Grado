@@ -54,6 +54,8 @@ interface TurbidityMapProps {
   endDate?: string;
   globalStartDate?: string;
   globalEndDate?: string;
+  satellite?: 'S2' | 'S3';
+  algorithm?: string;
   onRenderComplete?: () => void;
   onMapInteraction?: () => void;
   onExpandRange?: () => void;
@@ -149,6 +151,8 @@ const TurbidityMap = ({
   endDate, 
   globalStartDate,
   globalEndDate,
+  satellite = 'S3',
+  algorithm = 'SVR',
   onRenderComplete, 
   onMapInteraction,
   onExpandRange
@@ -630,11 +634,15 @@ const TurbidityMap = ({
 
 
         const response = await fetch(
-          `/api/v1/turbidity/heatmap-fast?start_date=${startDate}&end_date=${endDate}`,
+          `/api/v1/turbidity/heatmap-fast?start_date=${startDate}&end_date=${endDate}&satellite=${satellite}&algorithm=${algorithm}`,
           { signal: controller.signal }
         );
-        if (!response.ok) throw new Error('Failed to fetch heatmap data');
-        const result = await response.json();
+        
+        // Handle non-ok responses gracefully (empty map, no crash)
+        let result: any = { lons: [], lats: [], vals: [], count: 0 };
+        if (response.ok) {
+          try { result = await response.json(); } catch { /* bad JSON — use empty */ }
+        }
         
         // CORTAFUEGOS 1: Si fue cancelado, ignorar el resto del proceso
         if (isCancelled) return;
@@ -744,7 +752,7 @@ const TurbidityMap = ({
         isCancelled = true;
         controller.abort();
     };
-  }, [startDate, endDate]);
+  }, [startDate, endDate, satellite, algorithm]);
 
   // --- Extreme Pin Logic ---
   const findAndPlaceExtreme = (type: 'max' | 'min') => {

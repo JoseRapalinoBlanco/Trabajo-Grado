@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Activity, Globe, User, X, Menu, LayoutDashboard, FileJson, Settings, CheckCircle, Upload } from 'lucide-react';
+import { Activity, Globe, User, X, Menu, LayoutDashboard, FileJson, Settings, CheckCircle, Upload, Satellite } from 'lucide-react';
 import type { TranslationSet, Lang } from '../../i18n/translations';
 import * as api from '../../services/api';
 
@@ -42,15 +42,18 @@ const AdminPanel = ({ t, lang, token, onLogout, onToggleLang }: AdminPanelProps)
   const [downloadFormat, setDownloadFormat] = useState<'csv' | 'json' | 'txt' | 'xlsx'>('csv');
   const [isDownloading, setIsDownloading] = useState(false);
 
+  // Satellite toggle for admin operations
+  const [adminSatellite, setAdminSatellite] = useState<'S2' | 'S3'>('S3');
+
   useEffect(() => {
     if (adminTab === 'data' && dataSubTab === 'view') {
       fetchData();
     }
-  }, [adminTab, dataSubTab, dataFilterStart, dataFilterEnd]);
+  }, [adminTab, dataSubTab, dataFilterStart, dataFilterEnd, adminSatellite]);
 
   const fetchData = async () => {
     try {
-      const json = await api.fetchTableData(token, { startDate: dataFilterStart || undefined, endDate: dataFilterEnd || undefined });
+      const json = await api.fetchTableData(token, { startDate: dataFilterStart || undefined, endDate: dataFilterEnd || undefined, satellite: adminSatellite });
       setTableData(json.data);
       setTotalRecords(json.total);
     } catch (e) { console.error(e); }
@@ -75,7 +78,7 @@ const AdminPanel = ({ t, lang, token, onLogout, onToggleLang }: AdminPanelProps)
     setIsUploading(true);
     setUploadMessage('');
     try {
-      const data = await api.uploadData(token, file);
+      const data = await api.uploadData(token, file, adminSatellite);
       setUploadMessage(`${t.uploadSuccess} ${data.inserted_count} ${t.points}`);
       setFile(null);
     } catch (err: any) {
@@ -91,7 +94,8 @@ const AdminPanel = ({ t, lang, token, onLogout, onToggleLang }: AdminPanelProps)
       const data = await api.deleteData(token, {
         password: cleanPasswordInput,
         startDate: dataFilterStart || null,
-        endDate: dataFilterEnd || null
+        endDate: dataFilterEnd || null,
+        satellite: adminSatellite
       });
       setCleanMessage(`${t.successDeleted} ${data.deleted_count} ${t.pointsSuccess}`);
       setShowCleanPassword(false);
@@ -106,7 +110,7 @@ const AdminPanel = ({ t, lang, token, onLogout, onToggleLang }: AdminPanelProps)
   const handleDownloadData = async () => {
     setIsDownloading(true);
     try {
-      const blob = await api.downloadAdminData(token, downloadFormat, dataFilterStart || undefined, dataFilterEnd || undefined);
+      const blob = await api.downloadAdminData(token, downloadFormat, dataFilterStart || undefined, dataFilterEnd || undefined, adminSatellite);
       const objectUrl = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = objectUrl;
@@ -254,6 +258,26 @@ const AdminPanel = ({ t, lang, token, onLogout, onToggleLang }: AdminPanelProps)
                     <button onClick={() => setDataSubTab('download')} className={`flex-1 min-w-[120px] py-2 px-4 rounded-lg font-bold text-sm transition-all ${dataSubTab === 'download' ? 'bg-purple-600 text-white shadow-lg' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'}`}>{t.downloadData}</button>
                     <button onClick={() => setDataSubTab('clean')} className={`flex-1 min-w-[120px] py-2 px-4 rounded-lg font-bold text-sm transition-all ${dataSubTab === 'clean' ? 'bg-red-600 text-white shadow-lg' : 'text-slate-400 hover:text-red-400 hover:bg-red-500/10'}`}>{t.cleanData}</button>
                   </div>
+
+                  {/* Satellite Toggle */}
+                  <div className="mt-4 flex items-center gap-3">
+                    <Satellite className="w-4 h-4 text-slate-400" />
+                    <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Satélite:</span>
+                    <div className="flex gap-1 p-1 bg-slate-950/50 rounded-lg border border-slate-800">
+                      <button
+                        onClick={() => setAdminSatellite('S3')}
+                        className={`py-1.5 px-4 rounded-md text-xs font-bold transition-all ${adminSatellite === 'S3' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40' : 'text-slate-500 hover:text-slate-300 border border-transparent'}`}
+                      >
+                        Sentinel-3
+                      </button>
+                      <button
+                        onClick={() => setAdminSatellite('S2')}
+                        className={`py-1.5 px-4 rounded-md text-xs font-bold transition-all ${adminSatellite === 'S2' ? 'bg-sky-500/20 text-sky-400 border border-sky-500/40' : 'text-slate-500 hover:text-slate-300 border border-transparent'}`}
+                      >
+                        Sentinel-2
+                      </button>
+                    </div>
+                  </div>
                 </div>
 
                 <div className="p-6 flex-1 flex flex-col">
@@ -282,21 +306,41 @@ const AdminPanel = ({ t, lang, token, onLogout, onToggleLang }: AdminPanelProps)
                               <th className="p-3 font-semibold text-slate-400 border-b border-slate-800">{t.dateRef}</th>
                               <th className="p-3 font-semibold text-slate-400 border-b border-slate-800">{t.latitude}</th>
                               <th className="p-3 font-semibold text-slate-400 border-b border-slate-800">{t.longitude}</th>
-                              <th className="p-3 font-semibold text-slate-400 border-b border-slate-800">Rrs_665</th>
-                              <th className="p-3 font-semibold text-slate-400 border-b border-slate-800">TT_pred</th>
+                              {adminSatellite === 'S2' ? (
+                                <>
+                                  <th className="p-3 font-semibold text-slate-400 border-b border-slate-800">TUR_Eljaiek</th>
+                                  <th className="p-3 font-semibold text-slate-400 border-b border-slate-800">TUR_Dogliotti</th>
+                                  <th className="p-3 font-semibold text-slate-400 border-b border-slate-800">TUR_Nechad</th>
+                                </>
+                              ) : (
+                                <>
+                                  <th className="p-3 font-semibold text-slate-400 border-b border-slate-800">Rrs_665</th>
+                                  <th className="p-3 font-semibold text-slate-400 border-b border-slate-800">TT_pred</th>
+                                </>
+                              )}
                             </tr>
                           </thead>
                           <tbody>
                             {tableData.length === 0 ? (
-                              <tr><td colSpan={5} className="p-8 text-center text-slate-500 italic">{t.noData}</td></tr>
+                              <tr><td colSpan={adminSatellite === 'S2' ? 6 : 5} className="p-8 text-center text-slate-500 italic">{t.noData}</td></tr>
                             ) : (
                               tableData.map(row => (
                                 <tr key={row.id} className="border-b border-slate-800/30 hover:bg-slate-800/20 transition-colors">
                                   <td className="p-3 text-slate-400 font-mono">{new Date(row.date).toISOString().split('T')[0]}</td>
                                   <td className="p-3 text-slate-500 font-mono">{row.latitude?.toFixed(6)}</td>
                                   <td className="p-3 text-slate-500 font-mono">{row.longitude?.toFixed(6)}</td>
-                                  <td className="p-3 text-slate-400 font-mono">{row.rrs_665?.toFixed(6)}</td>
-                                  <td className="p-3 text-white font-mono bg-slate-800/10">{row.tt_pred?.toFixed(4)}</td>
+                                  {adminSatellite === 'S2' ? (
+                                    <>
+                                      <td className="p-3 text-slate-400 font-mono">{row.tur_eljaiek?.toFixed(4)}</td>
+                                      <td className="p-3 text-slate-400 font-mono">{row.tur_dogliotti2015?.toFixed(4)}</td>
+                                      <td className="p-3 text-white font-mono bg-slate-800/10">{row.tur_nechad2009_665?.toFixed(4)}</td>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <td className="p-3 text-slate-400 font-mono">{row.rrs_665?.toFixed(6)}</td>
+                                      <td className="p-3 text-white font-mono bg-slate-800/10">{row.tt_pred?.toFixed(4)}</td>
+                                    </>
+                                  )}
                                 </tr>
                               ))
                             )}

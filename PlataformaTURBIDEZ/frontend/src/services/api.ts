@@ -17,20 +17,20 @@ export interface HeatmapResponse {
   count: number;
 }
 
-export async function fetchHeatmapData(startDate: string, endDate: string): Promise<HeatmapResponse> {
-  const res = await fetch(`${API}/turbidity/heatmap?start_date=${startDate}&end_date=${endDate}`);
+export async function fetchHeatmapData(startDate: string, endDate: string, satellite = 'S3', algorithm = 'SVR'): Promise<HeatmapResponse> {
+  const res = await fetch(`${API}/turbidity/heatmap?start_date=${startDate}&end_date=${endDate}&satellite=${satellite}&algorithm=${algorithm}`);
   if (!res.ok) throw new Error('Failed to fetch heatmap data');
   return res.json();
 }
 
-export async function fetchRangeStats(startDate: string, endDate: string) {
-  const res = await fetch(`${API}/turbidity/analytics/range-stats?start_date=${startDate}&end_date=${endDate}`);
+export async function fetchRangeStats(startDate: string, endDate: string, satellite = 'S3', algorithm = 'SVR') {
+  const res = await fetch(`${API}/turbidity/analytics/range-stats?start_date=${startDate}&end_date=${endDate}&satellite=${satellite}&algorithm=${algorithm}`);
   if (!res.ok) throw new Error('Failed to fetch range stats');
   return res.json();
 }
 
-export async function fetchComparativeDelta(dateA: string, dateB: string) {
-  const res = await fetch(`${API}/turbidity/analytics/comparative-delta?date_a=${dateA}&date_b=${dateB}`);
+export async function fetchComparativeDelta(dateA: string, dateB: string, satellite = 'S3', algorithm = 'SVR') {
+  const res = await fetch(`${API}/turbidity/analytics/comparative-delta?date_a=${dateA}&date_b=${dateB}&satellite=${satellite}&algorithm=${algorithm}`);
   if (!res.ok) throw new Error('Failed to fetch comparative delta');
   return res.json();
 }
@@ -39,10 +39,12 @@ export interface DownloadPublicOpts {
   format: string;
   startDate?: string;
   endDate?: string;
+  satellite?: string;
+  algorithm?: string;
 }
 
 export function buildPublicDownloadUrl(opts: DownloadPublicOpts): string {
-  let url = `${API}/turbidity/download?format=${opts.format}`;
+  let url = `${API}/turbidity/download?format=${opts.format}&satellite=${opts.satellite || 'S3'}&algorithm=${opts.algorithm || 'SVR'}`;
   if (opts.startDate) url += `&start_date=${opts.startDate}`;
   if (opts.endDate) url += `&end_date=${opts.endDate}`;
   return url;
@@ -85,10 +87,11 @@ export interface FetchTableOpts {
   limit?: number;
   startDate?: string;
   endDate?: string;
+  satellite?: string;
 }
 
 export async function fetchTableData(token: string, opts: FetchTableOpts = {}) {
-  let url = `${API}/admin/data?limit=${opts.limit ?? 50}`;
+  let url = `${API}/admin/data?limit=${opts.limit ?? 50}&satellite=${opts.satellite || 'S3'}`;
   if (opts.startDate) url += `&start_date=${opts.startDate}`;
   if (opts.endDate) url += `&end_date=${opts.endDate}`;
 
@@ -103,6 +106,7 @@ export interface DeleteDataOpts {
   password: string;
   startDate?: string | null;
   endDate?: string | null;
+  satellite?: string;
 }
 
 export async function deleteData(token: string, opts: DeleteDataOpts) {
@@ -115,7 +119,8 @@ export async function deleteData(token: string, opts: DeleteDataOpts) {
     body: JSON.stringify({
       password: opts.password,
       start_date: opts.startDate || null,
-      end_date: opts.endDate || null
+      end_date: opts.endDate || null,
+      satellite: opts.satellite || 'S3'
     })
   });
   const data = await res.json();
@@ -123,8 +128,8 @@ export async function deleteData(token: string, opts: DeleteDataOpts) {
   return data;
 }
 
-export async function downloadAdminData(token: string, format: string, startDate?: string, endDate?: string): Promise<Blob> {
-  let url = `${API}/admin/download?format=${format}`;
+export async function downloadAdminData(token: string, format: string, startDate?: string, endDate?: string, satellite = 'S3'): Promise<Blob> {
+  let url = `${API}/admin/download?format=${format}&satellite=${satellite}`;
   if (startDate) url += `&start_date=${startDate}`;
   if (endDate) url += `&end_date=${endDate}`;
 
@@ -135,11 +140,11 @@ export async function downloadAdminData(token: string, format: string, startDate
   return res.blob();
 }
 
-export async function uploadData(token: string, file: File) {
+export async function uploadData(token: string, file: File, satellite = 'S3') {
   const formData = new FormData();
   formData.append('file', file);
 
-  const res = await fetch(`${API}/admin/upload-data`, {
+  const res = await fetch(`${API}/admin/upload-data?satellite=${satellite}`, {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${token}` },
     body: formData

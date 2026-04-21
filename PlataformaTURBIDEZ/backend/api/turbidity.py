@@ -3,20 +3,39 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, func
 from datetime import datetime
 from database import get_db
-from models import TurbidityData
+from models import TurbidityData, TurbidityDataS2
 from schemas import HeatmapResponse, HeatmapPoint, DatesResponse
 from typing import Optional, List
 
 router = APIRouter()
 
+def get_model_and_column(satellite: str, algorithm: str = "SVR"):
+    """Returns (ModelClass, turbidity_column) based on satellite and algorithm selection."""
+    if satellite == "S2":
+        Model = TurbidityDataS2
+        algo_map = {
+            "Eljaiek": TurbidityDataS2.tur_eljaiek,
+            "Dogliotti2015": TurbidityDataS2.tur_dogliotti2015,
+            "Nechad2009": TurbidityDataS2.tur_nechad2009_665,
+        }
+        col = algo_map.get(algorithm, TurbidityDataS2.tur_nechad2009_665)
+        return Model, col
+    else:
+        return TurbidityData, TurbidityData.tt_pred
+
 @router.get("/available-dates", response_model=DatesResponse)
-async def get_available_dates(db: AsyncSession = Depends(get_db)):
+async def get_available_dates(
+    satellite: str = Query("S3", description="Satellite source: S2 or S3"),
+    algorithm: str = Query("SVR", description="Algorithm to use"),
+    db: AsyncSession = Depends(get_db)
+):
     """
     Returns a list of unique days (YYYY-MM-DD) that have turbidity data records.
     """
+    Model, turb_col = get_model_and_column(satellite, algorithm)
     stmt = (
-        select(func.date(TurbidityData.measurement_date).label("day"))
-        .where(TurbidityData.tt_pred.is_not(None))
+        select(func.date(Model.measurement_date).label("day"))
+        .where(turb_col.is_not(None))
         .group_by("day")
         .order_by("day")
     )
@@ -29,6 +48,8 @@ async def get_available_dates(db: AsyncSession = Depends(get_db)):
 async def get_heatmap_data(
     start_date: str = Query(..., description="Start date for filter (ISO Format)"),
     end_date: str = Query(..., description="End date for filter (ISO Format)"),
+    satellite: str = Query("S3", description="Satellite source: S2 or S3"),
+    algorithm: str = Query("SVR", description="Algorithm to use"),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -36,6 +57,7 @@ async def get_heatmap_data(
     from PostGIS geom column to hydrate OpenLayers map heatmaps.
     """
     import pandas as pd
+    Model, turb_col = get_model_and_column(satellite, algorithm)
     
     try:
         start_dt = pd.to_datetime(start_date)
@@ -50,16 +72,16 @@ async def get_heatmap_data(
         # Use PostGIS functions to extract X (longitude) and Y (latitude)
         stmt = (
             select(
-                func.ST_X(TurbidityData.geom).label("longitude"),
-                func.ST_Y(TurbidityData.geom).label("latitude"),
-                TurbidityData.tt_pred.label("turbidity_ntu"),
-                TurbidityData.measurement_date.label("date")
+                func.ST_X(Model.geom).label("longitude"),
+                func.ST_Y(Model.geom).label("latitude"),
+                turb_col.label("turbidity_ntu"),
+                Model.measurement_date.label("date")
             )
             .where(
                 and_(
-                    TurbidityData.measurement_date >= start_dt,
-                    TurbidityData.measurement_date <= end_dt,
-                    TurbidityData.tt_pred.is_not(None) # Only return parsed turbidity points
+                    Model.measurement_date >= start_dt,
+                    Model.measurement_date <= end_dt,
+                    turb_col.is_not(None) # Only return parsed turbidity points
                 )
             )
         )
@@ -67,15 +89,20 @@ async def get_heatmap_data(
         result = await db.execute(stmt)
         rows = result.fetchall()
 
-        points = [
-            HeatmapPoint(
-                longitude=row.longitude,
-                latitude=row.latitude,
-                turbidity_ntu=row.turbidity_ntu,
-                date=row.date
+        import math
+        points = []
+        for row in rows:
+            v = row.turbidity_ntu
+            if v is None or (isinstance(v, float) and (math.isnan(v) or math.isinf(v))):
+                continue
+            points.append(
+                HeatmapPoint(
+                    longitude=row.longitude,
+                    latitude=row.latitude,
+                    turbidity_ntu=v,
+                    date=row.date
+                )
             )
-            for row in rows
-        ]
 
         return HeatmapResponse(
             data=points,
@@ -83,7 +110,8 @@ async def get_heatmap_data(
         )
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[heatmap] Error: {e}")
+        return HeatmapResponse(data=[], count=0)
 
 # --- Performance-optimized heatmap endpoint ---
 from fastapi.responses import JSONResponse
@@ -97,6 +125,8 @@ _CACHE_TTL = 3600  # 1 hour TTL
 async def get_heatmap_data_fast(
     start_date: str = Query(..., description="Start date (ISO)"),
     end_date: str = Query(..., description="End date (ISO)"),
+    satellite: str = Query("S3", description="Satellite source: S2 or S3"),
+    algorithm: str = Query("SVR", description="Algorithm to use"),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -105,8 +135,9 @@ async def get_heatmap_data_fast(
     Includes in-memory caching for repeated queries.
     """
     import pandas as pd
+    Model, turb_col = get_model_and_column(satellite, algorithm)
     
-    cache_key = f"{start_date}_{end_date}"
+    cache_key = f"{satellite}_{algorithm}_{start_date}_{end_date}"
     
     # Check cache
     if cache_key in _heatmap_cache:
@@ -127,15 +158,15 @@ async def get_heatmap_data_fast(
         # Only select what we need: lon, lat, turbidity value
         stmt = (
             select(
-                func.ST_X(TurbidityData.geom).label("longitude"),
-                func.ST_Y(TurbidityData.geom).label("latitude"),
-                TurbidityData.tt_pred.label("turbidity_ntu"),
+                func.ST_X(Model.geom).label("longitude"),
+                func.ST_Y(Model.geom).label("latitude"),
+                turb_col.label("turbidity_ntu"),
             )
             .where(
                 and_(
-                    TurbidityData.measurement_date >= start_dt,
-                    TurbidityData.measurement_date <= end_dt,
-                    TurbidityData.tt_pred.is_not(None)
+                    Model.measurement_date >= start_dt,
+                    Model.measurement_date <= end_dt,
+                    turb_col.is_not(None)
                 )
             )
         )
@@ -143,10 +174,18 @@ async def get_heatmap_data_fast(
         result = await db.execute(stmt)
         rows = result.fetchall()
 
-        # Build compact flat arrays
-        lons = [row.longitude for row in rows]
-        lats = [row.latitude for row in rows]
-        vals = [row.turbidity_ntu for row in rows]
+        # Build compact flat arrays — filter out NaN/Inf which are not valid JSON
+        import math
+        lons = []
+        lats = []
+        vals = []
+        for row in rows:
+            v = row.turbidity_ntu
+            if v is None or (isinstance(v, float) and (math.isnan(v) or math.isinf(v))):
+                continue
+            lons.append(float(row.longitude))
+            lats.append(float(row.latitude))
+            vals.append(float(v))
 
         response_data = {"lons": lons, "lats": lats, "vals": vals, "count": len(lons)}
         
@@ -156,7 +195,9 @@ async def get_heatmap_data_fast(
         return JSONResponse(content=response_data)
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[heatmap-fast] Error: {e}")
+        # Return empty data instead of 500 to avoid frontend crash
+        return JSONResponse(content={"lons": [], "lats": [], "vals": [], "count": 0})
 
 @router.get("/timeseries/point")
 async def get_timeseries_point(
@@ -164,6 +205,7 @@ async def get_timeseries_point(
     lon: float = Query(..., description="Longitude of the point"),
     start_date: str = Query(..., description="Start date (ISO)"),
     end_date: str = Query(..., description="End date (ISO)"),
+    satellite: str = Query("S3", description="Satellite source: S2 or S3"),
     algorithm: str = Query("SVR", description="Algorithm used"),
     db: AsyncSession = Depends(get_db)
 ):
@@ -172,6 +214,7 @@ async def get_timeseries_point(
     Groups by day and averages multiple entries if present.
     """
     import pandas as pd
+    Model, turb_col = get_model_and_column(satellite, algorithm)
     try:
         start_dt = pd.to_datetime(start_date)
         if start_dt.tzinfo is None:
@@ -187,15 +230,15 @@ async def get_timeseries_point(
         
         stmt = (
             select(
-                func.date(TurbidityData.measurement_date).label("date"),
-                func.avg(TurbidityData.tt_pred).label("ntu")
+                func.date(Model.measurement_date).label("date"),
+                func.avg(turb_col).label("ntu")
             )
             .where(
                 and_(
-                    TurbidityData.measurement_date >= start_dt,
-                    TurbidityData.measurement_date <= end_dt,
-                    TurbidityData.tt_pred.is_not(None),
-                    func.ST_DistanceSphere(TurbidityData.geom, target_point) <= 500
+                    Model.measurement_date >= start_dt,
+                    Model.measurement_date <= end_dt,
+                    turb_col.is_not(None),
+                    func.ST_DistanceSphere(Model.geom, target_point) <= 500
                 )
             )
             .group_by("date")
@@ -205,18 +248,25 @@ async def get_timeseries_point(
         result = await db.execute(stmt)
         rows = result.fetchall()
         
-        # Format dates as YYYY-MM-DD
-        data = [{"date": row.date.strftime("%Y-%m-%d"), "ntu": round(row.ntu, 2)} for row in rows]
+        # Format dates as YYYY-MM-DD, filter out NaN
+        import math
+        data = []
+        for row in rows:
+            if row.ntu is not None and not (isinstance(row.ntu, float) and math.isnan(row.ntu)):
+                data.append({"date": row.date.strftime("%Y-%m-%d"), "ntu": round(row.ntu, 2)})
         
         return data
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[timeseries/point] Error: {e}")
+        return []
 
 @router.get("/analytics/range-stats")
 async def get_analytics_range_stats(
     start_date: str = Query(..., description="Start date (ISO)"),
     end_date: str = Query(..., description="End date (ISO)"),
+    satellite: str = Query("S3", description="Satellite source: S2 or S3"),
+    algorithm: str = Query("SVR", description="Algorithm to use"),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -225,6 +275,7 @@ async def get_analytics_range_stats(
     """
     import pandas as pd
     import numpy as np
+    Model, turb_col = get_model_and_column(satellite, algorithm)
     
     try:
         start_dt = pd.to_datetime(start_date)
@@ -238,13 +289,13 @@ async def get_analytics_range_stats(
 
         # Extract ntu and date to compute both global stats and daily timeseries
         stmt = select(
-            func.date(TurbidityData.measurement_date).label("date"),
-            TurbidityData.tt_pred.label("ntu")
+            func.date(Model.measurement_date).label("date"),
+            turb_col.label("ntu")
         ).where(
             and_(
-                TurbidityData.measurement_date >= start_dt,
-                TurbidityData.measurement_date <= end_dt,
-                TurbidityData.tt_pred.is_not(None)
+                Model.measurement_date >= start_dt,
+                Model.measurement_date <= end_dt,
+                turb_col.is_not(None)
             )
         )
         result = await db.execute(stmt)
@@ -313,12 +364,15 @@ async def get_analytics_range_stats(
         }
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[range-stats] Error: {e}")
+        return {"empty": True}
 
 @router.get("/analytics/comparative-delta")
 async def get_analytics_comparative_delta(
     date_a: str = Query(..., description="Base date (ISO format, typically older)"),
     date_b: str = Query(..., description="Contrast date (ISO format, typically newer)"),
+    satellite: str = Query("S3", description="Satellite source: S2 or S3"),
+    algorithm: str = Query("SVR", description="Algorithm to use"),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -326,6 +380,7 @@ async def get_analytics_comparative_delta(
     Positive values mean turbidity increased, negative means it decreased.
     """
     import pandas as pd
+    Model, turb_col = get_model_and_column(satellite, algorithm)
     
     try:
         # Resolve Date A bounds
@@ -342,14 +397,14 @@ async def get_analytics_comparative_delta(
 
         async def fetch_points(start_dt, end_dt):
             stmt = select(
-                func.ST_X(TurbidityData.geom).label("lon"),
-                func.ST_Y(TurbidityData.geom).label("lat"),
-                TurbidityData.tt_pred.label("ntu")
+                func.ST_X(Model.geom).label("lon"),
+                func.ST_Y(Model.geom).label("lat"),
+                turb_col.label("ntu")
             ).where(
                 and_(
-                    TurbidityData.measurement_date >= start_dt,
-                    TurbidityData.measurement_date <= end_dt,
-                    TurbidityData.tt_pred.is_not(None)
+                    Model.measurement_date >= start_dt,
+                    Model.measurement_date <= end_dt,
+                    turb_col.is_not(None)
                 )
             )
             res = await db.execute(stmt)
@@ -387,7 +442,8 @@ async def get_analytics_comparative_delta(
         }
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[comparative-delta] Error: {e}")
+        return {"empty": True, "detail": str(e)}
 
 from fastapi.responses import StreamingResponse
 import io
@@ -397,72 +453,101 @@ async def download_turbidity_public(
     format: str = "csv",
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
+    satellite: str = "S3",
+    algorithm: str = "SVR",
     db: AsyncSession = Depends(get_db)
 ):
     import pandas as pd
     """
     Public Export to CSV, JSON, TXT, or XLSX formats.
     """
-    query = select(
-        TurbidityData.measurement_date,
-        func.ST_X(TurbidityData.geom).label('longitude'),
-        func.ST_Y(TurbidityData.geom).label('latitude'),
-        TurbidityData.rrs_665,
-        TurbidityData.tt_pred
-    ).order_by(TurbidityData.measurement_date.asc())
+    Model, turb_col = get_model_and_column(satellite, algorithm)
+    
+    # Build select columns dynamically based on satellite
+    if satellite == "S2":
+        query = select(
+            Model.measurement_date,
+            func.ST_X(Model.geom).label('longitude'),
+            func.ST_Y(Model.geom).label('latitude'),
+            Model.tur_eljaiek,
+            Model.tur_dogliotti2015,
+            Model.tur_nechad2009_665
+        ).order_by(Model.measurement_date.asc())
+    else:
+        query = select(
+            Model.measurement_date,
+            func.ST_X(Model.geom).label('longitude'),
+            func.ST_Y(Model.geom).label('latitude'),
+            Model.rrs_665,
+            Model.tt_pred
+        ).order_by(Model.measurement_date.asc())
     
     if start_date:
         start_dt = pd.to_datetime(start_date)
         if start_dt.tzinfo is None:
             start_dt = start_dt.tz_localize('UTC')
-        query = query.where(TurbidityData.measurement_date >= start_dt)
+        query = query.where(Model.measurement_date >= start_dt)
         
     if end_date:
         end_dt = pd.to_datetime(end_date)
         if end_dt.tzinfo is None:
             end_dt = end_dt.tz_localize('UTC')
         end_dt = end_dt.replace(hour=23, minute=59, second=59)
-        query = query.where(TurbidityData.measurement_date <= end_dt)
+        query = query.where(Model.measurement_date <= end_dt)
         
     result = await db.execute(query)
     rows = result.all()
     
-    data_list = [
-        {
-            "Date": row.measurement_date.isoformat(),
-            "Longitude": row.longitude,
-            "Latitude": row.latitude,
-            "Rrs_665": row.rrs_665,
-            "TT_pred": row.tt_pred
-        }
-        for row in rows
-    ]
+    if satellite == "S2":
+        data_list = [
+            {
+                "Date": row.measurement_date.isoformat(),
+                "Longitude": row.longitude,
+                "Latitude": row.latitude,
+                "TUR_Eljaiek": row.tur_eljaiek,
+                "TUR_Dogliotti2015": row.tur_dogliotti2015,
+                "TUR_Nechad2009_665": row.tur_nechad2009_665
+            }
+            for row in rows
+        ]
+    else:
+        data_list = [
+            {
+                "Date": row.measurement_date.isoformat(),
+                "Longitude": row.longitude,
+                "Latitude": row.latitude,
+                "Rrs_665": row.rrs_665,
+                "TT_pred": row.tt_pred
+            }
+            for row in rows
+        ]
     df = pd.DataFrame(data_list)
     
+    sat_label = "sentinel2" if satellite == "S2" else "sentinel3"
     if format.lower() == "csv":
         stream = io.StringIO()
         df.to_csv(stream, index=False)
         content = stream.getvalue().encode('utf-8')
         media_type = "text/csv"
-        filename = "turbidity_data.csv"
+        filename = f"turbidity_{sat_label}.csv"
     elif format.lower() == "json":
         stream = io.StringIO()
         df.to_json(stream, orient="records", date_format="iso")
         content = stream.getvalue().encode('utf-8')
         media_type = "application/json"
-        filename = "turbidity_data.json"
+        filename = f"turbidity_{sat_label}.json"
     elif format.lower() == "txt":
         stream = io.StringIO()
         df.to_csv(stream, index=False, sep='\t')
         content = stream.getvalue().encode('utf-8')
         media_type = "text/plain"
-        filename = "turbidity_data.txt"
+        filename = f"turbidity_{sat_label}.txt"
     elif format.lower() == "xlsx":
         stream = io.BytesIO()
         df.to_excel(stream, index=False)
         content = stream.getvalue()
         media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        filename = "turbidity_data.xlsx"
+        filename = f"turbidity_{sat_label}.xlsx"
     else:
         raise HTTPException(status_code=400, detail="Invalid format. Use 'csv', 'json', 'txt', or 'xlsx'")
 

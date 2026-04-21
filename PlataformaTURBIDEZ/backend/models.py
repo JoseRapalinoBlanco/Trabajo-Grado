@@ -19,3 +19,13 @@ class TurbidityData(Base):
     geom = Column(Geometry('POINT', srid=4326), nullable=False, index=True)
     rrs_665 = Column(Float, nullable=True)
     tt_pred = Column(Float, nullable=True)
+
+class TurbidityDataS2(Base):
+    __tablename__ = "turbidity_data_s2"
+
+    id = Column(BigInteger, primary_key=True, index=True, autoincrement=True)
+    measurement_date = Column(DateTime(timezone=True), nullable=False, index=True)
+    geom = Column(Geometry('POINT', srid=4326), nullable=False, index=True)
+    tur_eljaiek = Column(Float, nullable=True)
+    tur_dogliotti2015 = Column(Float, nullable=True)
+    tur_nechad2009_665 = Column(Float, nullable=True)

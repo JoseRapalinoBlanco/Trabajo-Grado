@@ -11,10 +11,12 @@ interface ReportsModalProps {
   currentDate: string;
   onClose: () => void;
   availableDates: string[];
+  satellite?: 'S2' | 'S3';
+  algorithm?: string;
   onApplyDates?: (mode: 'single'|'range', start: string, end: string) => void;
 }
 
-const ReportsModal = ({ t, currentDate, onClose, availableDates, onApplyDates }: ReportsModalProps) => {
+const ReportsModal = ({ t, currentDate, onClose, availableDates, satellite = 'S3', algorithm = 'SVR', onApplyDates }: ReportsModalProps) => {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'comparative' | 'export'>('dashboard');
 
   // --- TAB 1: Dashboard State ---
@@ -62,7 +64,7 @@ const ReportsModal = ({ t, currentDate, onClose, availableDates, onApplyDates }:
     setIsGeneratingDash(true);
     setDashData(null);
     try {
-      const stats = await api.fetchRangeStats(dashStartDate, dashEndDate);
+      const stats = await api.fetchRangeStats(dashStartDate, dashEndDate, satellite, algorithm);
       setDashData(stats);
     } catch (e) {
       console.error(e);
@@ -75,8 +77,8 @@ const ReportsModal = ({ t, currentDate, onClose, availableDates, onApplyDates }:
     setIsGeneratingComp(true);
     setCompData(null);
     try {
-      const dataA = await api.fetchRangeStats(compDateA, compDateA);
-      const dataB = await api.fetchRangeStats(compDateB, compDateB);
+      const dataA = await api.fetchRangeStats(compDateA, compDateA, satellite, algorithm);
+      const dataB = await api.fetchRangeStats(compDateB, compDateB, satellite, algorithm);
       
       if (dataA && !dataA.empty && dataB && !dataB.empty) {
         const deltaMean = dataB.mean - dataA.mean;
@@ -102,7 +104,7 @@ const ReportsModal = ({ t, currentDate, onClose, availableDates, onApplyDates }:
   // === EXPORT LOGIC ===
   const handleDownloadHistoricalReport = () => {
     setIsDownloadingReport(true);
-    const opts: api.DownloadPublicOpts = { format: reportFormat };
+    const opts: api.DownloadPublicOpts = { format: reportFormat, satellite, algorithm };
 
     if (exportModeSelection === 'range') {
       if (exportStartDate) opts.startDate = exportStartDate;

@@ -1,19 +1,38 @@
-import { Droplets, Globe, User, Activity, ChevronRight, BarChart3, X } from 'lucide-react';
+import { Droplets, Globe, User, Activity, ChevronRight, BarChart3, X, Satellite } from 'lucide-react';
 import type { TranslationSet } from '../../i18n/translations';
 
 interface SidebarProps {
   t: TranslationSet;
   lang: string;
   isOpen: boolean;
+  selectedSatellite: 'S2' | 'S3';
+  selectedAlgorithm: string;
   onClose: () => void;
   onToggleLang: () => void;
   onLoginClick: () => void;
   onOpenReports: () => void;
+  onSatelliteChange: (sat: 'S2' | 'S3') => void;
+  onAlgorithmChange: (algo: string) => void;
 }
 
+const S2_ALGORITHMS = [
+  { value: 'Nechad2009', label: 'Nechad 2009 (665nm)' },
+  { value: 'Dogliotti2015', label: 'Dogliotti 2015' },
+  { value: 'Eljaiek', label: 'Eljaiek' },
+];
+
+const S3_ALGORITHMS = [
+  { value: 'SVR', label: 'Support Vector Regression (SVR)' },
+];
+
 const Sidebar = ({
-  t, lang, isOpen, onClose, onToggleLang, onLoginClick, onOpenReports,
+  t, lang, isOpen, selectedSatellite, selectedAlgorithm,
+  onClose, onToggleLang, onLoginClick, onOpenReports,
+  onSatelliteChange, onAlgorithmChange,
 }: SidebarProps) => {
+
+  const algorithms = selectedSatellite === 'S2' ? S2_ALGORITHMS : S3_ALGORITHMS;
+
   return (
     <div
       className={`
@@ -75,44 +94,63 @@ const Sidebar = ({
               <Activity className="w-3.5 h-3.5" /> {t.analysisModule}
             </h2>
 
+            {/* Satellite Source Selector */}
+            <div className="bg-slate-800/40 p-3.5 rounded-xl border border-slate-700/50 shadow-inner">
+              <label className="text-[10px] font-semibold text-slate-400 mb-2 block uppercase tracking-wider flex items-center gap-1.5">
+                <Satellite className="w-3 h-3" />
+                {t.satelliteSource}
+              </label>
+              {/* Toggle Switch Pills */}
+              <div className="flex gap-1 p-1 bg-slate-900/80 rounded-lg border border-slate-700/30">
+                <button
+                  onClick={() => onSatelliteChange('S2')}
+                  className={`flex-1 py-2 px-3 rounded-md text-xs font-bold transition-all duration-200 ${
+                    selectedSatellite === 'S2'
+                      ? 'bg-sky-500/20 text-sky-400 border border-sky-500/40 shadow-sm shadow-sky-500/10'
+                      : 'text-slate-500 hover:text-slate-300 border border-transparent'
+                  }`}
+                >
+                  Sentinel-2
+                </button>
+                <button
+                  onClick={() => onSatelliteChange('S3')}
+                  className={`flex-1 py-2 px-3 rounded-md text-xs font-bold transition-all duration-200 ${
+                    selectedSatellite === 'S3'
+                      ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 shadow-sm shadow-emerald-500/10'
+                      : 'text-slate-500 hover:text-slate-300 border border-transparent'
+                  }`}
+                >
+                  Sentinel-3
+                </button>
+              </div>
+            </div>
+
             {/* Algorithm Selector */}
             <div className="bg-slate-800/40 p-3.5 rounded-xl border border-slate-700/50 shadow-inner">
               <label className="text-[10px] font-semibold text-slate-400 mb-2 block uppercase tracking-wider">{t.ingestedAlgo}</label>
               <div className="relative">
                 <select
-                  className="w-full bg-slate-900 border border-slate-600/50 rounded-lg p-2.5 text-xs text-emerald-400 font-medium tracking-wide focus:outline-none focus:border-emerald-500/50 appearance-none cursor-pointer"
-                  defaultValue="SVR"
+                  className={`w-full bg-slate-900 border border-slate-600/50 rounded-lg p-2.5 text-xs font-medium tracking-wide focus:outline-none appearance-none cursor-pointer transition-colors ${
+                    selectedSatellite === 'S2'
+                      ? 'text-sky-400 focus:border-sky-500/50'
+                      : 'text-emerald-400 focus:border-emerald-500/50'
+                  }`}
+                  value={selectedAlgorithm}
+                  onChange={(e) => onAlgorithmChange(e.target.value)}
                 >
-                  <option value="SVR">{t.algorithms.svr}</option>
-                  <option value="RF" disabled className="text-slate-500">{t.algorithms.rf}</option>
-                  <option value="NN" disabled className="text-slate-500">{t.algorithms.nn}</option>
-                  <option value="XGB" disabled className="text-slate-500">{t.algorithms.xgb}</option>
-                  <option value="LR" disabled className="text-slate-500">{t.algorithms.lr}</option>
+                  {algorithms.map(algo => (
+                    <option key={algo.value} value={algo.value}>{algo.label}</option>
+                  ))}
                 </select>
                 <div className="absolute inset-y-0 right-3 flex items-center pointer-events-none">
-                  <ChevronRight className="w-3.5 h-3.5 text-emerald-500 opacity-70" />
+                  <ChevronRight className={`w-3.5 h-3.5 opacity-70 ${
+                    selectedSatellite === 'S2' ? 'text-sky-500' : 'text-emerald-500'
+                  }`} />
                 </div>
               </div>
               <p className="text-[10px] text-slate-500 mt-2.5 leading-relaxed">
                 {t.algoDesc}
               </p>
-            </div>
-
-            {/* Satellite Source Selector (Mockup) */}
-            <div className="bg-slate-800/40 p-3.5 rounded-xl border border-slate-700/50 shadow-inner">
-              <label className="text-[10px] font-semibold text-slate-400 mb-2 block uppercase tracking-wider">{(t as any).satelliteSource}</label>
-              <div className="relative">
-                <select
-                  className="w-full bg-slate-900 border border-slate-600/50 rounded-lg p-2.5 text-xs text-sky-400 font-medium tracking-wide focus:outline-none focus:border-sky-500/50 appearance-none cursor-pointer"
-                  defaultValue="S2"
-                >
-                  <option value="S2">{(t as any).sentinel2}</option>
-                  <option value="S3">{(t as any).sentinel3}</option>
-                </select>
-                <div className="absolute inset-y-0 right-3 flex items-center pointer-events-none">
-                  <ChevronRight className="w-3.5 h-3.5 text-sky-500 opacity-70" />
-                </div>
-              </div>
             </div>
           </div>
 

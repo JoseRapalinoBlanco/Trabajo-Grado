@@ -49,6 +49,8 @@ function App() {
   const [recCurrentDate, setRecCurrentDate] = useState('');
   const [recDatesList, setRecDatesList] = useState<string[]>([]);
   const [recIndex, setRecIndex] = useState(0);
+  const [recSatellite, setRecSatellite] = useState<'S2' | 'S3'>('S3');
+  const [recAlgorithm, setRecAlgorithm] = useState('SVR');
 
   // --- Offscreen PNG Export State ---
   const [isExportingPngBg, setIsExportingPngBg] = useState(false);
@@ -58,6 +60,8 @@ function App() {
   const [pngCurrentDate, setPngCurrentDate] = useState('');
   const [pngDatesList, setPngDatesList] = useState<string[]>([]);
   const [pngIndex, setPngIndex] = useState(0);
+  const [pngSatellite, setPngSatellite] = useState<'S2' | 'S3'>('S3');
+  const [pngAlgorithm, setPngAlgorithm] = useState('SVR');
   const pngZipRef = useRef<JSZip | null>(null);
 
   // Fetch Available Dates (re-fetch when satellite or algorithm changes)
@@ -209,6 +213,8 @@ function App() {
       setRecDatesList(datesToRecord);
       setRecCurrentDate(datesToRecord[0]);
       setRecIndex(0);
+      setRecSatellite(e.detail.satellite || satellite);
+      setRecAlgorithm(e.detail.algorithm || algorithm);
       setIsRecordingBg(true);
     };
 
@@ -275,8 +281,13 @@ function App() {
   // Global Event Listener for PNG Export Request
   useEffect(() => {
     const handleStartExportPng = (e: any) => {
-      const { mode, startDate: eStart, endDate: eEnd } = e.detail;
-      const datesToExport = availableDates.filter(d => d >= eStart && d <= eEnd).sort();
+      const { mode, startDate: eStart, endDate: eEnd, satellite: expSat, algorithm: expAlg } = e.detail;
+      const datesToExport = availableDates.filter(d => {
+        if (mode === 'single') return d === eStart;
+        if (mode === 'all') return true;
+        return d >= eStart && d <= eEnd;
+      }).sort();
+
       if (datesToExport.length === 0) {
         alert("No hay datos en este rango para exportar.");
         return;
@@ -288,6 +299,8 @@ function App() {
       setPngDatesList(datesToExport);
       setPngCurrentDate(datesToExport[0]);
       setPngIndex(0);
+      setPngSatellite(expSat || satellite);
+      setPngAlgorithm(expAlg || algorithm);
       pngZipRef.current = mode === 'range' ? new JSZip() : null;
       setIsExportingPngBg(true);
     };
@@ -309,7 +322,7 @@ function App() {
        // We must wait a tiny bit to ensure OpenLayers fully flipped its buffers
        await new Promise(r => setTimeout(r, 600));
 
-       const blob = await generateInfographicBlob(canvas, pngCurrentDate);
+       const blob = await generateInfographicBlob(canvas, pngCurrentDate, pngSatellite, pngAlgorithm);
        
        if (pngMode === 'single') {
           // Download directly
@@ -457,6 +470,8 @@ function App() {
               endDate={recCurrentDate}
               globalStartDate={recStartDate}
               globalEndDate={recEndDate}
+              satellite={recSatellite}
+              algorithm={recAlgorithm}
               onRenderComplete={handleRecordingFrameComplete}
             />
         </div>
@@ -487,6 +502,8 @@ function App() {
               endDate={pngCurrentDate}
               globalStartDate={pngStartDate}
               globalEndDate={pngEndDate}
+              satellite={pngSatellite}
+              algorithm={pngAlgorithm}
               onRenderComplete={handleExportPngFrameComplete}
             />
         </div>

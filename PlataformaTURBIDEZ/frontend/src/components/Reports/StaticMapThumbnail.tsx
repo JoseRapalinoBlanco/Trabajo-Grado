@@ -12,9 +12,11 @@ const CARTAGENA_CENTER = fromLonLat([-75.52, 10.36]);
 
 interface StaticMapThumbnailProps {
   date: string;
+  satellite?: 'S2' | 'S3';
+  algorithm?: string;
 }
 
-const StaticMapThumbnail: React.FC<StaticMapThumbnailProps> = ({ date }) => {
+const StaticMapThumbnail: React.FC<StaticMapThumbnailProps> = ({ date, satellite = 'S3', algorithm = 'SVR' }) => {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<Map | null>(null);
   
@@ -89,7 +91,7 @@ const StaticMapThumbnail: React.FC<StaticMapThumbnailProps> = ({ date }) => {
     const fetchHeatmapData = async () => {
       try {
         const response = await fetch(
-          `/api/v1/turbidity/heatmap-fast?start_date=${date}&end_date=${date}`,
+          `/api/v1/turbidity/heatmap-fast?start_date=${date}&end_date=${date}&satellite=${satellite}&algorithm=${algorithm}`,
           { signal: controller.signal }
         );
         if (!response.ok) throw new Error('Failed to fetch heatmap data');
@@ -170,7 +172,7 @@ const StaticMapThumbnail: React.FC<StaticMapThumbnailProps> = ({ date }) => {
         isCancelled = true;
         controller.abort();
     };
-  }, [date]);
+  }, [date, satellite, algorithm]);
 
   return (
     <div className="w-full h-full relative group">

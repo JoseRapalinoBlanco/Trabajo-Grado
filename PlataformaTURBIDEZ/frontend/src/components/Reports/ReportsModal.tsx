@@ -1,10 +1,10 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { X, BarChart3, Activity, Download, Map as MapIcon, Info, RefreshCw, Layers as LayersIcon, Video, LineChart } from 'lucide-react';
 import type { TranslationSet } from '../../i18n/translations';
 import * as api from '../../services/api';
 import CustomCalendar from '../Map/CustomCalendar';
 import StaticMapThumbnail from './StaticMapThumbnail';
-import { ResponsiveContainer, XAxis, YAxis, Tooltip, LineChart as RechartsLineChart, Line, CartesianGrid, PieChart, Pie, BarChart, Bar, Legend, AreaChart, Area } from 'recharts';
+import { ResponsiveContainer, XAxis, YAxis, Tooltip, LineChart as RechartsLineChart, Line, CartesianGrid, PieChart, Pie, BarChart, Bar, Legend, AreaChart, Area, ReferenceLine } from 'recharts';
 
 interface ReportsModalProps {
   t: TranslationSet;
@@ -25,7 +25,7 @@ const ReportsModal = ({ t, currentDate, onClose, availableDates, satellite = 'S3
   const [dashEndDate, setDashEndDate] = useState(currentDate);
   const [isGeneratingDash, setIsGeneratingDash] = useState(false);
   const [dashData, setDashData] = useState<any>(null);
-  const [dashChartTab, setDashChartTab] = useState<'histogram' | 'donut' | 'bar'>('histogram');
+  const [dashChartTab, setDashChartTab] = useState<'histogram' | 'bar'>('bar');
 
   // --- TAB 2: Comparative State ---
   const [compDateA, setCompDateA] = useState(currentDate);
@@ -41,8 +41,48 @@ const ReportsModal = ({ t, currentDate, onClose, availableDates, satellite = 'S3
   const [exportEndDate, setExportEndDate] = useState(currentDate);
   const [showExportCalendar, setShowExportCalendar] = useState(false);
   const [reportFormat, setReportFormat] = useState('csv');
+  const [exportSatellite, setExportSatellite] = useState<'S2' | 'S3'>(satellite);
+  const [exportAlgorithm, setExportAlgorithm] = useState<string>(algorithm);
   const [isDownloadingReport, setIsDownloadingReport] = useState(false);
   const [isRecordingVideo, setIsRecordingVideo] = useState(false);
+  
+  const [exportAvailableDates, setExportAvailableDates] = useState<string[]>(availableDates);
+
+  useEffect(() => {
+    const fetchExportDates = async () => {
+      try {
+        const res = await fetch(`/api/v1/turbidity/available-dates?satellite=${exportSatellite}&algorithm=${exportAlgorithm}`);
+        if (res.ok) {
+          const data = await res.json();
+          setExportAvailableDates(data.dates || []);
+          
+          // Auto-adjust start/end dates if they fall outside the new available dates or are not in the list
+          if (data.dates && data.dates.length > 0) {
+              if (exportModeSelection === 'single' && !data.dates.includes(exportStartDate)) {
+                  setExportStartDate(data.dates[0]);
+                  setExportEndDate(data.dates[0]);
+              } else if (exportModeSelection === 'range') {
+                  let s = exportStartDate;
+                  let e = exportEndDate;
+                  if (!data.dates.includes(s)) s = data.dates[0];
+                  if (!data.dates.includes(e)) e = data.dates[data.dates.length - 1];
+                  if (s > e) e = s;
+                  setExportStartDate(s);
+                  setExportEndDate(e);
+              }
+          }
+        }
+      } catch (e) {
+        console.error("Error fetching export dates:", e);
+      }
+    };
+
+    if (exportSatellite !== satellite || exportAlgorithm !== algorithm) {
+        fetchExportDates();
+    } else {
+        setExportAvailableDates(availableDates);
+    }
+  }, [exportSatellite, exportAlgorithm, satellite, algorithm, availableDates, exportModeSelection, exportStartDate, exportEndDate]);
 
   // === MEMOIZED DATA FOR PERFORMANCE ===
   const dashChartData = useMemo(() => {
@@ -104,7 +144,7 @@ const ReportsModal = ({ t, currentDate, onClose, availableDates, satellite = 'S3
   // === EXPORT LOGIC ===
   const handleDownloadHistoricalReport = () => {
     setIsDownloadingReport(true);
-    const opts: api.DownloadPublicOpts = { format: reportFormat, satellite, algorithm };
+    const opts: api.DownloadPublicOpts = { format: reportFormat, satellite: exportSatellite, algorithm: exportAlgorithm };
 
     if (exportModeSelection === 'range') {
       if (exportStartDate) opts.startDate = exportStartDate;
@@ -127,13 +167,15 @@ const ReportsModal = ({ t, currentDate, onClose, availableDates, satellite = 'S3
 
   const handleDownloadMapImage = async () => {
     setIsDownloadingReport(true);
-    const rStart = exportModeSelection === 'all' ? availableDates[0] : exportStartDate;
-    const rEnd = exportModeSelection === 'all' ? availableDates[availableDates.length - 1] : exportEndDate;
+    const rStart = exportModeSelection === 'all' ? exportAvailableDates[0] : exportStartDate;
+    const rEnd = exportModeSelection === 'all' ? exportAvailableDates[exportAvailableDates.length - 1] : exportEndDate;
 
     const evtObj = {
         mode: exportModeSelection,
         startDate: rStart,
-        endDate: rEnd
+        endDate: rEnd,
+        satellite: exportSatellite,
+        algorithm: exportAlgorithm
     };
 
     // Wait for state to settle, then fire event and close modal
@@ -148,11 +190,11 @@ const ReportsModal = ({ t, currentDate, onClose, availableDates, satellite = 'S3
     setIsRecordingVideo(true);
     
     // Determine the export range
-    const rStart = exportModeSelection === 'all' ? availableDates[0] : exportStartDate;
-    const rEnd = exportModeSelection === 'all' ? availableDates[availableDates.length - 1] : exportEndDate;
+    const rStart = exportModeSelection === 'all' ? exportAvailableDates[0] : exportStartDate;
+    const rEnd = exportModeSelection === 'all' ? exportAvailableDates[exportAvailableDates.length - 1] : exportEndDate;
     
     // We emit a CustomEvent to be caught by the App / Map component.
-    const startObj = { startDate: rStart, endDate: rEnd };
+    const startObj = { startDate: rStart, endDate: rEnd, satellite: exportSatellite, algorithm: exportAlgorithm };
     
     // Wait for state to settle, then fire event and close modal
     setTimeout(() => {
@@ -283,7 +325,7 @@ const ReportsModal = ({ t, currentDate, onClose, availableDates, satellite = 'S3
                              <Info className="w-3 h-3 opacity-70" />
                           </span>
                           <div className="absolute top-[110%] left-1/2 -translate-x-1/2 mt-1 w-64 p-3 bg-slate-800 text-xs text-slate-200 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity z-50 pointer-events-none shadow-2xl border border-emerald-500/30 font-normal normal-case whitespace-normal">
-                             {(t as any).maxNtuDesc || 'Pico máximo de concentración. Crucial para identificar eventos extremos o resuspensión agresiva.'}
+                             {(t as any).maxNtuDesc || 'Valor máximo de turbidez (NTU) registrado en el periodo seleccionado.'}
                           </div>
                           <span className="text-3xl font-mono transform-gpu text-white font-bold mt-auto">{dashData.max.toFixed(2)}<span className="text-xs ml-1 text-slate-500 break-keep">NTU</span></span>
                           <span className="text-[9px] font-mono text-emerald-600/80 mt-1 uppercase tracking-widest bg-emerald-500/10 px-2 py-0.5 rounded-full inline-block mx-auto">{dashData.max_date}</span>
@@ -294,7 +336,7 @@ const ReportsModal = ({ t, currentDate, onClose, availableDates, satellite = 'S3
                              <Info className="w-3 h-3 opacity-70" />
                           </span>
                           <div className="absolute top-[110%] left-1/2 -translate-x-1/2 mt-1 w-64 p-3 bg-slate-800 text-xs text-slate-200 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity z-50 pointer-events-none shadow-2xl border border-blue-500/30 font-normal normal-case whitespace-normal">
-                             {(t as any).minNtuDesc || 'Valor base de limpieza. Revela el nivel mínimo de sedimentación o el área más prístina en el análisis.'}
+                             {(t as any).minNtuDesc || 'Valor mínimo de turbidez (NTU) registrado en el periodo seleccionado.'}
                           </div>
                           <span className="text-3xl font-mono transform-gpu text-white font-bold mt-auto">{dashData.min.toFixed(2)}<span className="text-xs ml-1 text-slate-500 break-keep">NTU</span></span>
                           <span className="text-[9px] font-mono text-blue-600/80 mt-1 uppercase tracking-widest bg-blue-500/10 px-2 py-0.5 rounded-full inline-block mx-auto">{dashData.min_date}</span>
@@ -315,7 +357,7 @@ const ReportsModal = ({ t, currentDate, onClose, availableDates, satellite = 'S3
                              <Info className="w-3 h-3 opacity-70" />
                           </span>
                           <div className="absolute top-[110%] right-0 lg:left-0 lg:-translate-x-1/2 mt-1 w-64 p-3 bg-slate-800 text-xs text-slate-200 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity z-50 pointer-events-none shadow-2xl border border-purple-500/30 font-normal normal-case whitespace-normal">
-                             {(t as any).cvTooltip || 'Índice de inestabilidad hídrica. Valores >50% revelan entornos muy dinámicos.'}
+                             {(t as any).cvTooltip || 'Coeficiente de variación. Valores >50% indican alta variabilidad en las mediciones de turbidez.'}
                           </div>
                           <span className="text-3xl font-mono transform-gpu text-white font-bold mt-auto">{dashData.cv.toFixed(1)}<span className="text-xs ml-1 text-slate-500 break-keep">%</span></span>
                        </div>
@@ -336,18 +378,22 @@ const ReportsModal = ({ t, currentDate, onClose, availableDates, satellite = 'S3
                             </span>
                             <div className="flex-1 w-full" style={{ minHeight: '250px' }}>
                                <ResponsiveContainer width="100%" height={250}>
-                                  <RechartsLineChart data={dashData.timeseries || []} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
+                                  <BarChart data={dashData.timeseries || []} margin={{ top: 20, right: 10, left: -20, bottom: 0 }}>
                                     <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.5} vertical={false} />
                                     <XAxis dataKey="date" stroke="#64748b" fontSize={12} tickMargin={10} minTickGap={20} />
                                     <YAxis stroke="#64748b" fontSize={12} domain={[0, 'auto']} tickFormatter={(val) => typeof val === 'number' ? val.toFixed(1) : val} />
                                     <Tooltip 
+                                      cursor={{ fill: 'rgba(255,255,255,0.05)' }}
                                       contentStyle={{ backgroundColor: 'rgba(15, 23, 42, 0.95)', border: '1px solid rgba(147, 51, 234, 0.3)', borderRadius: '12px', fontSize: '13px', boxShadow: '0 10px 25px rgba(0,0,0,0.5)' }}
                                       itemStyle={{ color: '#c084fc', fontWeight: 'bold' }}
                                       labelStyle={{ color: '#94a3b8', marginBottom: '6px' }}
                                       formatter={(value: any) => [typeof value === 'number' ? `${value.toFixed(2)} NTU` : `${value} NTU`, 'Turbidez Promedio']}
                                     />
-                                    <Line isAnimationActive={dashData.timeseries?.length > 1} type="monotone" dataKey="ntu" stroke="#c084fc" strokeWidth={4} dot={{ r: 4, fill: '#c084fc', strokeWidth: 0 }} activeDot={{ r: 8, fill: '#d8b4fe', stroke: 'rgba(216,180,254,0.3)', strokeWidth: 6 }} />
-                                  </RechartsLineChart>
+                                    <ReferenceLine y={dashData.mean} stroke="#f43f5e" strokeWidth={2} strokeDasharray="3 3">
+                                        <text x={0} y={-5} fill="#f43f5e" fontSize={10} fontWeight="bold">MEDIA: {dashData.mean?.toFixed(1)}</text>
+                                    </ReferenceLine>
+                                    <Bar dataKey="ntu" fill="#c084fc" radius={[4, 4, 0, 0]} maxBarSize={40} />
+                                  </BarChart>
                                </ResponsiveContainer>
                             </div>
                          </div>
@@ -365,7 +411,6 @@ const ReportsModal = ({ t, currentDate, onClose, availableDates, satellite = 'S3
                                </span>
                                <div className="flex bg-slate-900 p-1 border border-slate-700 rounded-lg">
                                  <button onClick={() => setDashChartTab('histogram')} className={`px-3 py-1.5 text-[10px] rounded font-bold uppercase transition-all ${dashChartTab === 'histogram' ? 'bg-sky-600 text-white shadow-[0_0_10px_rgba(2,132,199,0.3)]' : 'text-slate-500 hover:text-slate-300'}`}>CSS</button>
-                                 <button onClick={() => setDashChartTab('donut')} className={`px-3 py-1.5 text-[10px] rounded font-bold uppercase transition-all ${dashChartTab === 'donut' ? 'bg-sky-600 text-white shadow-[0_0_10px_rgba(2,132,199,0.3)]' : 'text-slate-500 hover:text-slate-300'}`}>Pie</button>
                                  <button onClick={() => setDashChartTab('bar')} className={`px-3 py-1.5 text-[10px] rounded font-bold uppercase transition-all ${dashChartTab === 'bar' ? 'bg-sky-600 text-white shadow-[0_0_10px_rgba(2,132,199,0.3)]' : 'text-slate-500 hover:text-slate-300'}`}>Bar</button>
                                </div>
                             </div>
@@ -400,7 +445,7 @@ const ReportsModal = ({ t, currentDate, onClose, availableDates, satellite = 'S3
                                     <span className="text-xs font-mono w-20 text-red-500 uppercase font-bold text-right cursor-help group relative">
                                         {t.high} (+10)
                                         <div className="absolute bottom-[110%] md:left-0 right-0 w-64 p-3 bg-slate-800 text-[10px] text-slate-200 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity z-[100] pointer-events-none shadow-2xl border border-red-500/30 font-normal normal-case whitespace-normal text-left">
-                                           {(t as any).distHighTooltip || 'Área crítica o pluma de sedimentación concentrada.'}
+                                           {(t as any).distHighTooltip || 'Porcentaje de mediciones con turbidez superior a 10 NTU.'}
                                         </div>
                                     </span>
                                     <div className="flex-1 h-5 bg-slate-900 rounded-full overflow-hidden border border-slate-700">
@@ -411,37 +456,7 @@ const ReportsModal = ({ t, currentDate, onClose, availableDates, satellite = 'S3
                                 </div>
                             )}
 
-                            {dashChartTab === 'donut' && (
-                                <div className="h-48 w-full animate-in fade-in zoom-in-95 duration-300">
-                                  <ResponsiveContainer width="100%" height="100%">
-                                    <PieChart>
-                                      <Pie 
-                                        data={dashChartData} 
-                                        outerRadius={80} 
-                                        dataKey="value" 
-                                        stroke="rgba(0,0,0,0.5)"
-                                        strokeWidth={2}
-                                        label={({ cx, cy, midAngle, innerRadius, outerRadius, value }) => {
-                                          const RADIAN = Math.PI / 180;
-                                          const radius = innerRadius + (outerRadius - innerRadius) * 0.5;
-                                          const x = cx + radius * Math.cos(-(midAngle || 0) * RADIAN);
-                                          const y = cy + radius * Math.sin(-(midAngle || 0) * RADIAN);
-                                          if(value < 5) return null;
-                                          return (
-                                            <text x={x} y={y} fill="white" textAnchor="middle" dominantBaseline="central" style={{fontSize: '11px', fontWeight: 'bold', textShadow: '0 2px 4px rgba(0,0,0,0.8)'}}>
-                                              {`${value}%`}
-                                            </text>
-                                          );
-                                        }}
-                                        labelLine={false}
-                                      >
-                                      </Pie>
-                                      <Tooltip contentStyle={{ backgroundColor: 'rgba(15, 23, 42, 0.95)', border: '1px solid #334155', borderRadius: '8px', zIndex: 1000 }} formatter={(val) => `${val}%`} />
-                                      <Legend verticalAlign="bottom" height={20} iconType="circle" wrapperStyle={{ fontSize: '11px', color: '#94a3b8' }}/>
-                                    </PieChart>
-                                  </ResponsiveContainer>
-                                </div>
-                            )}
+                            {/* Removed Donut Chart per request */}
 
                             {dashChartTab === 'bar' && (
                                <div className="h-48 w-full animate-in fade-in zoom-in-95 duration-300">
@@ -472,15 +487,9 @@ const ReportsModal = ({ t, currentDate, onClose, availableDates, satellite = 'S3
                            </span>
                            <div className="w-full" style={{ minHeight: '200px' }}>
                               <ResponsiveContainer width="100%" height={200}>
-                                <AreaChart data={dashData.frequencies} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
-                                  <defs>
-                                    <linearGradient id="colorCount" x1="0" y1="0" x2="0" y2="1">
-                                      <stop offset="5%" stopColor="#38bdf8" stopOpacity={0.8}/>
-                                      <stop offset="95%" stopColor="#38bdf8" stopOpacity={0}/>
-                                    </linearGradient>
-                                  </defs>
+                                <BarChart data={dashData.frequencies} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
                                   <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.3} vertical={false} />
-                                  <XAxis dataKey="ntu" stroke="#64748b" fontSize={11} tickFormatter={(val) => `${val} NTU`} minTickGap={30} />
+                                  <XAxis dataKey="ntu" stroke="#64748b" fontSize={11} tickFormatter={(val) => `${val}`} minTickGap={30} />
                                   <YAxis 
                                     stroke="#64748b" 
                                     fontSize={11} 
@@ -490,16 +499,16 @@ const ReportsModal = ({ t, currentDate, onClose, availableDates, satellite = 'S3
                                     }} 
                                   />
                                   <Tooltip 
+                                    cursor={{ fill: 'rgba(255,255,255,0.05)' }}
                                     contentStyle={{ backgroundColor: 'rgba(15, 23, 42, 0.95)', border: '1px solid #0ea5e9', borderRadius: '8px', zIndex: 1000 }} 
                                     formatter={(val: any) => {
                                       if (typeof val !== 'number') return [`${val}%`, 'Frecuencia Relativa (%)'];
                                       return [`${((val / frequenciesTotalCount) * 100).toFixed(1)}%`, 'Frecuencia Relativa (%)'];
                                     }} 
-                                    labelFormatter={(val) => `${val} NTU`}
-                                    cursor={{ stroke: 'rgba(255,255,255,0.1)', strokeWidth: 2 }}
+                                    labelFormatter={(val) => `NTU: ${val}`}
                                   />
-                                  <Area type="monotone" dataKey="count" stroke="#38bdf8" strokeWidth={3} fillOpacity={1} fill="url(#colorCount)" />
-                                </AreaChart>
+                                  <Bar dataKey="count" fill="#38bdf8" radius={[2, 2, 0, 0]} maxBarSize={30} />
+                                </BarChart>
                               </ResponsiveContainer>
                            </div>
                         </div>
@@ -587,14 +596,14 @@ const ReportsModal = ({ t, currentDate, onClose, availableDates, satellite = 'S3
                                </span>
                                <p className="text-slate-300 text-sm md:text-base leading-relaxed">
                                   {compData.deltaPercent > 30 
-                                    ? ((t as any).detSevere || "Deterioro severo en la calidad del agua en el periodo analizado.")
+                                    ? ((t as any).detSevere || "Se observa un aumento significativo de la turbidez respecto a la fecha de referencia.")
                                     : compData.deltaPercent > 5
                                     ? ((t as any).detMod || "Se observa un aumento moderado de la turbidez.")
                                     : compData.deltaPercent < -30
-                                    ? ((t as any).impSevere || "Mejora excepcional y significativa en la calidad hídrica.")
+                                    ? ((t as any).impSevere || "Se observa una disminución significativa de la turbidez respecto a la fecha de referencia.")
                                     : compData.deltaPercent < -5
-                                    ? ((t as any).impMod || "El cuerpo de agua se ha clarificado moderadamente.")
-                                    : ((t as any).stable || "Las variaciones observadas son mínimas y estadísticamente irrelevantes.")}
+                                    ? ((t as any).impMod || "Se observa una disminución moderada de la turbidez respecto a la fecha de referencia.")
+                                    : ((t as any).stable || "Las variaciones de turbidez observadas entre ambas fechas son mínimas.")}
                                </p>
                             </div>
                             <div className="flex flex-col md:items-end shrink-0 bg-slate-950/50 p-4 rounded-xl border border-slate-800 text-center md:text-right w-full md:w-auto">
@@ -626,7 +635,7 @@ const ReportsModal = ({ t, currentDate, onClose, availableDates, satellite = 'S3
                                   <span className="bg-sky-500/10 text-sky-400 px-3 py-1 rounded-full text-[10px] font-mono tracking-widest border border-sky-500/20">{compDateA ? new Date(compDateA + 'T12:00:00Z').toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' }).toUpperCase() : 'N/A'}</span>
                                </div>
                                <div className="h-48 w-full overflow-hidden relative border-b border-slate-800 bg-slate-950 flex items-center justify-center">
-                                  <StaticMapThumbnail date={compDateA} />
+                                  <StaticMapThumbnail date={compDateA} satellite={satellite} algorithm={algorithm} />
                                </div>
                                <div className="p-4 flex gap-3 bg-slate-900/40 rounded-b-2xl">
                                   <div className="flex-1 bg-slate-900 border border-slate-800 rounded-xl p-3 text-center pointer-events-auto relative group z-10 hover:z-50">
@@ -647,7 +656,7 @@ const ReportsModal = ({ t, currentDate, onClose, availableDates, satellite = 'S3
                                      <span className="text-[9px] text-slate-400 uppercase tracking-widest mb-1 flex items-center justify-center gap-1 cursor-help truncate">{(t as any).criticalArea || 'Área Crítica'} <Info className="w-3 h-3 opacity-70 shrink-0"/></span>
                                      <span className="text-xl font-mono text-red-400 font-bold">{compData.dayA.dist.high.toFixed(1)}%</span>
                                      <div className="absolute top-[110%] right-0 md:left-1/2 md:-translate-x-1/2 w-48 bg-slate-800 text-xs text-slate-300 p-2 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity z-[100] pointer-events-none shadow-xl border border-sky-500/30 font-normal normal-case">
-                                       {(t as any).criticalAreaTooltip || 'Porcentaje de la superficie con contaminación de nivel Alto.'}
+                                       {(t as any).criticalAreaTooltip || 'Porcentaje de la superficie con turbidez superior a 10 NTU.'}
                                      </div>
                                   </div>
                                </div>
@@ -665,7 +674,7 @@ const ReportsModal = ({ t, currentDate, onClose, availableDates, satellite = 'S3
                                   <span className="bg-orange-500/10 text-orange-400 px-3 py-1 rounded-full text-[10px] font-mono tracking-widest border border-orange-500/20">{compDateB ? new Date(compDateB + 'T12:00:00Z').toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' }).toUpperCase() : 'N/A'}</span>
                                </div>
                                <div className="h-48 w-full overflow-hidden relative border-b border-slate-800 bg-slate-950 flex items-center justify-center">
-                                   <StaticMapThumbnail date={compDateB} />
+                                   <StaticMapThumbnail date={compDateB} satellite={satellite} algorithm={algorithm} />
                                </div>
                                <div className="p-4 flex gap-3 bg-slate-900/40 rounded-b-2xl">
                                   <div className="flex-1 bg-slate-900 border border-slate-800 rounded-xl p-3 text-center pointer-events-auto relative group z-10 hover:z-50">
@@ -686,7 +695,7 @@ const ReportsModal = ({ t, currentDate, onClose, availableDates, satellite = 'S3
                                      <span className="text-[9px] text-slate-400 uppercase tracking-widest mb-1 flex items-center justify-center gap-1 cursor-help truncate">{(t as any).criticalArea || 'Área Crítica'} <Info className="w-3 h-3 opacity-70 shrink-0"/></span>
                                      <span className="text-xl font-mono text-red-400 font-bold">{compData.dayB.dist.high.toFixed(1)}%</span>
                                      <div className="absolute top-[110%] right-0 md:left-1/2 md:-translate-x-1/2 w-48 bg-slate-800 text-xs text-slate-300 p-2 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity z-[100] pointer-events-none shadow-xl border border-orange-500/30 font-normal normal-case">
-                                       {(t as any).criticalAreaTooltip || 'Porcentaje de la superficie con contaminación de nivel Alto.'}
+                                       {(t as any).criticalAreaTooltip || 'Porcentaje de la superficie con turbidez superior a 10 NTU.'}
                                      </div>
                                   </div>
                                </div>
@@ -707,7 +716,7 @@ const ReportsModal = ({ t, currentDate, onClose, availableDates, satellite = 'S3
                                   <BarChart data={[
                                     { metric: 'Media NTU', Referencia: Number(compData.dayA.mean.toFixed(2)), Evaluación: Number(compData.dayB.mean.toFixed(2)) },
                                     { metric: 'Máx NTU', Referencia: Number(compData.dayA.max.toFixed(2)), Evaluación: Number(compData.dayB.max.toFixed(2)) },
-                                    { metric: 'Área Crítica %', Referencia: Number(compData.dayA.dist.high.toFixed(1)), Evaluación: Number(compData.dayB.dist.high.toFixed(1)) }
+                                    { metric: 'Turbidez Alta %', Referencia: Number(compData.dayA.dist.high.toFixed(1)), Evaluación: Number(compData.dayB.dist.high.toFixed(1)) }
                                   ]} margin={{ top: 20, right: 30, left: -20, bottom: 5 }}>
                                     <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.5} vertical={false} />
                                     <XAxis dataKey="metric" stroke="#94a3b8" tick={{ fill: '#94a3b8', fontSize: 12, fontWeight: 'bold' }} />
@@ -780,7 +789,7 @@ const ReportsModal = ({ t, currentDate, onClose, availableDates, satellite = 'S3
                                         dateMode={exportModeSelection === 'single' ? 'single' : 'range'}
                                         startDate={exportStartDate}
                                         endDate={exportEndDate}
-                                        availableDates={availableDates}
+                                        availableDates={exportAvailableDates}
                                         onSelect={(start: string, end: string) => { setExportStartDate(start); setExportEndDate(end); if(exportModeSelection==='single' || start && end) setShowExportCalendar(false); }}
                                         t={t as any}
                                       />
@@ -800,6 +809,37 @@ const ReportsModal = ({ t, currentDate, onClose, availableDates, satellite = 'S3
                             {['csv', 'json', 'txt', 'xlsx'].map(fmt => (
                               <button key={fmt} onClick={() => setReportFormat(fmt)} className={`flex-1 text-xs py-2 rounded-md font-bold uppercase transition-all ${reportFormat === fmt ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}>
                                 {fmt.toUpperCase()}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        <div>
+                          <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-3 flex items-center gap-2 w-max group relative cursor-help">
+                              Satélite <Info className="w-3 h-3 opacity-70" />
+                              <div className="absolute bottom-[110%] left-0 w-64 text-[10px] bg-slate-800 text-slate-200 p-3 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity z-[100] pointer-events-none shadow-2xl border border-emerald-500/30 font-normal normal-case">
+                                {(t as any).exportSatTooltip || 'Selecciona la constelación satelital para la extracción.'}
+                              </div>
+                            </label>
+                          <div className="flex bg-slate-950 p-1 border border-slate-800 rounded-lg shadow-inner">
+                            {['S2', 'S3'].map(sat => (
+                              <button key={sat} onClick={() => { setExportSatellite(sat as 'S2' | 'S3'); setExportAlgorithm(sat === 'S2' ? 'Nechad2009' : 'SVR'); }} className={`flex-1 text-xs py-2 rounded-md font-bold uppercase transition-all ${exportSatellite === sat ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}>
+                                {sat === 'S2' ? 'Sentinel-2' : 'Sentinel-3'}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-3 flex items-center gap-2 w-max group relative cursor-help">
+                              Algoritmo <Info className="w-3 h-3 opacity-70" />
+                              <div className="absolute bottom-[110%] left-0 w-64 text-[10px] bg-slate-800 text-slate-200 p-3 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity z-[100] pointer-events-none shadow-2xl border border-emerald-500/30 font-normal normal-case">
+                                {(t as any).exportAlgTooltip || 'Selecciona el modelo de inferencia de turbidez.'}
+                              </div>
+                            </label>
+                          <div className="flex bg-slate-950 p-1 border border-slate-800 rounded-lg shadow-inner">
+                            {(exportSatellite === 'S2' ? ['Nechad2009', 'Dogliotti2015', 'Eljaiek'] : ['SVR']).map(alg => (
+                              <button key={alg} onClick={() => setExportAlgorithm(alg)} className={`flex-1 text-xs py-2 rounded-md font-bold uppercase transition-all ${exportAlgorithm === alg ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}>
+                                {alg}
                               </button>
                             ))}
                           </div>

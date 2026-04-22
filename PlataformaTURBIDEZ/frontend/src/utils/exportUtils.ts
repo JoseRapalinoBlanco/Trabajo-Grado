@@ -2,12 +2,14 @@ import * as api from '../services/api';
 
 export async function generateInfographicBlob(
     mapCanvas: HTMLCanvasElement,
-    targetDate: string
+    targetDate: string,
+    satellite: string = 'S3',
+    algorithm: string = 'SVR'
 ): Promise<Blob> {
     try {
         let stats = null;
         try {
-            stats = await api.fetchRangeStats(targetDate, targetDate);
+            stats = await api.fetchRangeStats(targetDate, targetDate, satellite, algorithm);
         } catch (e) {
             console.error("Failed to fetch stats for PNG:", e);
         }
@@ -37,12 +39,13 @@ export async function generateInfographicBlob(
         ctx.fillStyle = '#f8fafc';
         ctx.font = 'bold 32px sans-serif';
         ctx.textAlign = 'left';
-        ctx.fillText('Reporte de Calidad de Agua - TurbidezApp', 40, 60);
+        ctx.fillText('Reporte de Turbidez - TurbidezApp', 40, 60);
 
         // Texts - Subtitle
         ctx.fillStyle = '#94a3b8';
         ctx.font = '18px monospace';
         ctx.fillText('Análisis Espacio-Temporal Generado Automáticamente', 40, 90);
+
 
         // Date Badge
         const dateStr = targetDate ? new Date(targetDate + 'T12:00:00Z').toLocaleDateString('es-ES', { day: '2-digit', month: 'long', year: 'numeric' }).toUpperCase() : 'VISIÓN GLOBAL';
@@ -185,19 +188,24 @@ export async function generateInfographicBlob(
         // Exact class names
         ctx.font = 'bold 9px sans-serif';
         ctx.fillStyle = '#64748b';
-        ctx.fillText('DESPEJADO', lx + 35, ly + 95);
+        ctx.fillText('MUY BAJO', lx + 35, ly + 95);
         ctx.fillText('BAJO', lx + 30 + (290 * 0.25), ly + 95);
         ctx.fillStyle = 'rgba(16, 185, 129, 0.8)';
         ctx.fillText('MEDIO', lx + 30 + (290 * 0.50), ly + 95);
         ctx.fillStyle = 'rgba(234, 179, 8, 0.8)';
         ctx.fillText('ALTO', lx + 30 + (290 * 0.75), ly + 95);
         ctx.fillStyle = 'rgba(239, 68, 68, 0.8)';
-        ctx.fillText('CRÍTICO', lx + 315, ly + 95);
+        ctx.fillText('MUY ALTO', lx + 315, ly + 95);
         // --- End Legend ---
 
         drawKpiBox(810, 1005, '#ec4899', 'rgba(236, 72, 153, 0.05)', 'rgba(236, 72, 153, 0.3)', 'VARIACIÓN (CV)', cvText);
 
         // Footer
+        ctx.fillStyle = '#0ea5e9'; // sky-500
+        ctx.font = 'bold 14px monospace';
+        ctx.textAlign = 'left';
+        ctx.fillText(`Satélite: ${satellite === 'S2' ? 'Sentinel-2' : 'Sentinel-3'} | Algoritmo: ${algorithm}`, 40, 1170);
+
         ctx.fillStyle = '#64748b';
         ctx.font = '14px monospace';
         ctx.textAlign = 'right';

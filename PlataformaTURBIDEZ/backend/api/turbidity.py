@@ -306,6 +306,10 @@ async def get_analytics_range_stats(
 
         # Load into Pandas DataFrame for ultra-fast aggregation
         df = pd.DataFrame([{"date": r.date, "ntu": r.ntu} for r in rows])
+        # Filter out NaN/Inf values (PostgreSQL NaN floats pass SQL IS NOT NULL checks)
+        df = df[df['ntu'].notna() & np.isfinite(df['ntu'])]
+        if df.empty:
+            return {"empty": True}
         arr = df['ntu'].values
 
         mean_val = np.mean(arr)
@@ -418,17 +422,25 @@ async def get_analytics_comparative_delta(
             return {"empty": True, "detail": "Missing data for one or both dates."}
 
         # Index Date A by (lat, lon) rounding to 4 decimals (approx 10 meters) to match spatial grids securely
-        dict_A = {(round(row.lat, 4), round(row.lon, 4)): row.ntu for row in rows_A}
+        import math
+        dict_A = {}
+        for row in rows_A:
+            v = row.ntu
+            if v is None or (isinstance(v, float) and (math.isnan(v) or math.isinf(v))):
+                continue
+            dict_A[(round(row.lat, 4), round(row.lon, 4))] = v
 
         lats = []
         lons = []
         deltas = []
 
         for row_b in rows_B:
+            val_B = row_b.ntu
+            if val_B is None or (isinstance(val_B, float) and (math.isnan(val_B) or math.isinf(val_B))):
+                continue
             key = (round(row_b.lat, 4), round(row_b.lon, 4))
             if key in dict_A:
                 val_A = dict_A[key]
-                val_B = row_b.ntu
                 lats.append(row_b.lat)
                 lons.append(row_b.lon)
                 deltas.append(val_B - val_A)

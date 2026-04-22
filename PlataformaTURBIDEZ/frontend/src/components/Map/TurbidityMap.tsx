@@ -572,14 +572,14 @@ const TurbidityMap = ({
 
             ctx.font = 'bold 12px sans-serif';
             ctx.fillStyle = '#64748b';
-            ctx.fillText('DESPEJADO', lx + 40, ly + 125);
+            ctx.fillText('BAJO', lx + 40, ly + 125);
             ctx.fillText('BAJO', lx + 30 + (360 * 0.25), ly + 125);
             ctx.fillStyle = 'rgba(16, 185, 129, 0.8)';
             ctx.fillText('MEDIO', lx + 30 + (360 * 0.50), ly + 125);
             ctx.fillStyle = 'rgba(234, 179, 8, 0.8)';
             ctx.fillText('ALTO', lx + 30 + (360 * 0.75), ly + 125);
             ctx.fillStyle = 'rgba(239, 68, 68, 0.8)';
-            ctx.fillText('CRÍTICO', lx + 380, ly + 125);
+            ctx.fillText('MUY ALTO', lx + 380, ly + 125);
             
             ctx.restore();
         }
